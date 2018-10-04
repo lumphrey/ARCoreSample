@@ -3,7 +3,7 @@ package com.example.neerajm.myarcar;
 import android.app.AlertDialog;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
-import android.net.Uri;
+import android.support.annotation.RawRes;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.util.Log;
@@ -22,6 +22,7 @@ import com.google.ar.core.exceptions.UnavailableSdkTooOldException;
 import com.google.ar.sceneform.AnchorNode;
 import com.google.ar.sceneform.ArSceneView;
 import com.google.ar.sceneform.FrameTime;
+import com.google.ar.sceneform.Node;
 import com.google.ar.sceneform.rendering.ModelRenderable;
 import com.google.ar.sceneform.rendering.Renderable;
 import com.google.ar.sceneform.ux.ArFragment;
@@ -30,6 +31,7 @@ import com.google.ar.sceneform.ux.TransformableNode;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Collection;
+import java.util.HashSet;
 
 public class MainActivity extends AppCompatActivity {
     private static final String TAG = MainActivity.class.getSimpleName();
@@ -38,13 +40,16 @@ public class MainActivity extends AppCompatActivity {
     private ArSceneView arSceneView;
     private ModelRenderable andyRenderable;
     private boolean modelAdded = false; // add model once
-
     private boolean sessionConfigured = false;
+    private AnchorNode anchorNode;
+    private TransformableNode node;
+    private HashSet<String> renderedObjects;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        renderedObjects = new HashSet<>();
         arFragment= (ArFragment)  getSupportFragmentManager().findFragmentById(R.id.ar_fragment);
 
         // hiding the plane discovery
@@ -58,22 +63,30 @@ public class MainActivity extends AppCompatActivity {
 
     private boolean setupAugmentedImageDb(Config config) {
         AugmentedImageDatabase augmentedImageDatabase;
+        augmentedImageDatabase = new AugmentedImageDatabase(mSession);
 
-        Bitmap augmentedImageBitmap = loadAugmentedImage();
-        if (augmentedImageBitmap == null) {
+        Bitmap carBitmap = loadAugmentedImage("car.jpeg");
+        Bitmap planeBitmap = loadAugmentedImage("plane.jpeg");
+
+        addToImageDb(augmentedImageDatabase, "car", carBitmap);
+        addToImageDb(augmentedImageDatabase, "plane", planeBitmap);
+
+        if (augmentedImageDatabase.getNumImages() < 1) {
             return false;
         }
-
-        augmentedImageDatabase = new AugmentedImageDatabase(mSession);
-        augmentedImageDatabase.addImage("car", augmentedImageBitmap);
 
         config.setAugmentedImageDatabase(augmentedImageDatabase);
         return true;
     }
 
+    private void addToImageDb(AugmentedImageDatabase db, String key, Bitmap bitmapToAdd) {
+        if(bitmapToAdd != null) {
+            db.addImage(key, bitmapToAdd);
+        }
+    }
 
-    private Bitmap loadAugmentedImage(){
-        try (InputStream is = getAssets().open("car.jpeg")){
+    private Bitmap loadAugmentedImage(String imageFile){
+        try (InputStream is = getAssets().open(imageFile)){
             return BitmapFactory.decodeStream(is);
         }
         catch (IOException e){
@@ -90,19 +103,28 @@ public class MainActivity extends AppCompatActivity {
         for (AugmentedImage augmentedImage : augmentedImages){
             if (augmentedImage.getTrackingState() == TrackingState.TRACKING){
 
-                if (augmentedImage.getName().contains("car") && !modelAdded){
-                    renderObject(arFragment,
-                            augmentedImage.createAnchor(augmentedImage.getCenterPose()),
-                            R.raw.car);
-                    modelAdded = true;
+                String imageName = augmentedImage.getName();
+
+                if (!renderedObjects.contains(imageName)) {
+                    switch(imageName) {
+                        case "car":
+                            doRenderObject(arFragment, augmentedImage.createAnchor(augmentedImage.getCenterPose()), R.raw.car);
+                            break;
+                        case "plane":
+                            // do something for plane
+                            // doRenderObject(arFragment, augmentedImage.createAnchor(augmentedImage.getCenterPose()), R.raw.plane);
+                            break;
+                        default:
+                            removeNodeFromScene(arFragment, anchorNode, node);
+                            break;
+                    }
+                    renderedObjects.add(imageName);
                 }
             }
         }
-
     }
 
-
-    private void renderObject(ArFragment fragment, Anchor anchor, int model){
+    private void doRenderObject(ArFragment fragment, Anchor anchor, @RawRes int model){
         ModelRenderable.builder()
                 .setSource(this, model)
                 .build()
@@ -115,16 +137,20 @@ public class MainActivity extends AppCompatActivity {
                     dialog.show();
                     return null;
                 }));
-
     }
 
     private void addNodeToScene(ArFragment fragment, Anchor anchor, Renderable renderable){
-        AnchorNode anchorNode = new AnchorNode(anchor);
-        TransformableNode node = new TransformableNode(fragment.getTransformationSystem());
+        anchorNode = new AnchorNode(anchor);
+        node = new TransformableNode(fragment.getTransformationSystem());
         node.setRenderable(renderable);
         node.setParent(anchorNode);
         fragment.getArSceneView().getScene().addChild(anchorNode);
         node.select();
+    }
+
+    private void removeNodeFromScene(ArFragment fragment, AnchorNode anchorNode, Node node) {
+        anchorNode.removeChild(node);
+        fragment.getArSceneView().getScene().removeChild(anchorNode);
     }
 
     @Override
